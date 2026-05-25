@@ -189,3 +189,7 @@ document.getElementById('search').addEventListener('input', function(e) {
 });
 
 renderGrid();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
