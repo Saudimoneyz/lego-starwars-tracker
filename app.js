@@ -83,7 +83,7 @@ function initGrid() {
     return '<div class="card' + (got ? ' collected' : '') + '" data-id="' + c.id + '" onclick="toggle(\'' + c.id + '\')">' +
       (got ? '<div class="check">&#10003;</div>' : '') +
       (c.dlc ? '<div class="dlc-badge">DLC</div>' : '') +
-      '<img src="' + safeImg + '" alt="' + safeName + '" onerror="imgFallback(this,\'' + safeName + '\')">' +
+      '<img loading="lazy" src="' + safeImg + '" alt="' + safeName + '" onerror="imgFallback(this,\'' + safeName + '\')">' +
       '<div class="card-overlay"></div>' +
       '<div class="card-info">' +
         '<div class="cat-bar" style="background:' + col + '"></div>' +
