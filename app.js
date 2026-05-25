@@ -36,14 +36,6 @@ window.imgFallback = function(el, name) {
   );
 };
 
-function getFiltered() {
-  const q = query.toLowerCase();
-  return CHARACTERS.filter(c =>
-    (activeCat === 'all' || c.category === activeCat) &&
-    (!q || c.name.toLowerCase().includes(q))
-  );
-}
-
 function updateProgress() {
   const total = CHARACTERS.length;
   const got   = CHARACTERS.filter(c => state[c.id]).length;
@@ -63,47 +55,45 @@ function renderFilters() {
   }).join('');
 }
 
-// Single delegated listener on the filters nav (avoids inline onclick quote issues)
-document.getElementById('filters').addEventListener('click', function(e) {
-  const btn = e.target.closest('button[data-cat]');
-  if (btn) { activeCat = btn.dataset.cat; renderGrid(); }
-});
+// Show/hide existing cards — images never reload
+function applyFilter() {
+  const q = query.toLowerCase();
+  let visible = 0;
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    const c = CHAR_MAP[card.dataset.id];
+    const show = (activeCat === 'all' || c.category === activeCat) &&
+                 (!q || c.name.toLowerCase().includes(q));
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const empty = document.getElementById('grid-empty');
+  if (empty) empty.style.display = visible ? 'none' : '';
+  renderFilters();
+  updateProgress();
+}
 
-// Full grid render — only called when filter/search changes
-function renderGrid() {
-  const chars = getFiltered();
-  const grid  = document.getElementById('grid');
-
-  if (!chars.length) {
-    grid.innerHTML = '<div class="empty">No characters found</div>';
-    renderFilters();
-    updateProgress();
-    return;
-  }
-
-  grid.innerHTML = chars.map(c => {
+// Build ALL cards once — images load once and stay in DOM forever
+function initGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = CHARACTERS.map(c => {
     const got      = state[c.id];
     const col      = CAT_COLORS[c.category] || '#888';
-    const safeName = c.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const safeName = c.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     const safeImg  = c.img.replace(/"/g, '&quot;');
-
     return '<div class="card' + (got ? ' collected' : '') + '" data-id="' + c.id + '" onclick="toggle(\'' + c.id + '\')">' +
       (got ? '<div class="check">&#10003;</div>' : '') +
       (c.dlc ? '<div class="dlc-badge">DLC</div>' : '') +
-      '<img loading="lazy" src="' + safeImg + '" alt="' + safeName + '" onerror="imgFallback(this,\'' + safeName + '\')">' +
+      '<img src="' + safeImg + '" alt="' + safeName + '" onerror="imgFallback(this,\'' + safeName + '\')">' +
       '<div class="card-overlay"></div>' +
       '<div class="card-info">' +
         '<div class="cat-bar" style="background:' + col + '"></div>' +
         '<span class="card-name" title="' + safeName + '">' + c.name + '</span>' +
       '</div>' +
     '</div>';
-  }).join('');
-
-  renderFilters();
-  updateProgress();
+  }).join('') + '<div id="grid-empty" class="empty" style="display:none">No characters found</div>';
 }
 
-// Toggle: direct DOM patch — no grid re-render
+// Toggle: direct DOM patch only
 window.toggle = function(id) {
   state[id] = !state[id];
   if (!state[id]) delete state[id];
@@ -111,62 +101,73 @@ window.toggle = function(id) {
 
   const card = document.querySelector('.card[data-id="' + id + '"]');
   if (card) {
-    const isNowCollected = !!state[id];
-    card.classList.toggle('collected', isNowCollected);
-
-    const existingCheck = card.querySelector('.check');
-    if (isNowCollected && !existingCheck) {
+    const collected = !!state[id];
+    card.classList.toggle('collected', collected);
+    const existing = card.querySelector('.check');
+    if (collected && !existing) {
       const check = document.createElement('div');
       check.className = 'check';
       check.innerHTML = '&#10003;';
       card.insertBefore(check, card.firstChild);
-    } else if (!isNowCollected && existingCheck) {
-      existingCheck.remove();
+    } else if (!collected && existing) {
+      existing.remove();
     }
   }
-
   updateProgress();
   renderFilters();
 };
 
-window.setCat = function(cat) {
-  activeCat = cat;
-  renderGrid();
-};
+// Category filter
+document.getElementById('filters').addEventListener('click', function(e) {
+  const btn = e.target.closest('button[data-cat]');
+  if (btn) { activeCat = btn.dataset.cat; applyFilter(); }
+});
+
+// Debounced search
+document.getElementById('search').addEventListener('input', function(e) {
+  clearTimeout(searchTimer);
+  query = e.target.value;
+  searchTimer = setTimeout(applyFilter, 180);
+});
 
 window.resetAll = function() {
   if (confirm('Reset ALL character progress?\nThis cannot be undone.')) {
     state = {};
     save();
-    renderGrid();
+    document.querySelectorAll('.card.collected').forEach(card => {
+      card.classList.remove('collected');
+      const check = card.querySelector('.check');
+      if (check) check.remove();
+    });
+    updateProgress();
+    renderFilters();
   }
 };
 
-// Starfield — throttled to ~20fps, 80 stars, pauses when tab hidden
+// Lookup map for fast filter access
+const CHAR_MAP = {};
+CHARACTERS.forEach(c => { CHAR_MAP[c.id] = c; });
+
+// Starfield — throttled to ~20fps, pauses when tab hidden
 (function initStarfield() {
   const canvas = document.getElementById('starfield');
   const ctx    = canvas.getContext('2d');
-
   const resize = () => { canvas.width = innerWidth; canvas.height = innerHeight; };
   resize();
   window.addEventListener('resize', resize);
 
   const stars = Array.from({ length: 80 }, () => ({
-    x:     Math.random() * canvas.width,
-    y:     Math.random() * canvas.height,
-    r:     Math.random() * 1.3 + 0.2,
+    x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+    r: Math.random() * 1.3 + 0.2,
     phase: Math.random() * Math.PI * 2,
     freq:  Math.random() * 0.02 + 0.005
   }));
 
-  const INTERVAL = 50; // ~20fps
-  let t = 0;
-  let last = 0;
-
-  function tick(now) {
+  const INTERVAL = 50;
+  let t = 0, last = 0;
+  (function tick(now) {
     if (!document.hidden && now - last >= INTERVAL) {
-      last = now;
-      t++;
+      last = now; t++;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       stars.forEach(s => {
         const a = 0.2 + 0.8 * (0.5 + 0.5 * Math.sin(s.phase + t * s.freq));
@@ -177,19 +178,11 @@ window.resetAll = function() {
       });
     }
     requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
+  })();
 })();
 
-// Debounced search
-document.getElementById('search').addEventListener('input', function(e) {
-  clearTimeout(searchTimer);
-  query = e.target.value;
-  searchTimer = setTimeout(renderGrid, 180);
-});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
-renderGrid();
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
-}
+initGrid();
+renderFilters();
+updateProgress();
